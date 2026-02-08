@@ -1,0 +1,11 @@
+services:
+  manager:
+    build: .
+    container_name: tg-multiposter-manager
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./manager:/app/manager
+      - ./template:/app/template
+      - ./instances:/app/instances
