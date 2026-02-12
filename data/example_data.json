@@ -1,0 +1,19 @@
+{
+  "users": {
+    "123456789": {
+      "pending_days": 0,
+      "bots": [
+        {
+          "bot_token": "123456789:YOUR_TOKEN_HERE",
+          "bot_username": "example_multipost_bot",
+          "instance_dir": "instances/123456789_a1b2c3d4",
+          "expires": "2026-03-01T00:00:00"
+        }
+      ]
+    },
+    "987654321": {
+      "pending_days": 14,
+      "bots": []
+    }
+  }
+}
