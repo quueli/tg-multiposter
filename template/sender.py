@@ -29,10 +29,12 @@ def build_input_media(media_list: List[Dict]):
     return items
 
 
-async def safe_api_call(request, retries: int = MAX_RETRIES):
+async def safe_api_call(make_request, retries: int = MAX_RETRIES):
+    # make_request builds a fresh coroutine each try - a coroutine can only be
+    # awaited once, so on a retry we can't reuse the previous one
     for attempt in range(retries):
         try:
-            return await request
+            return await make_request()
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + uniform(0.5, 2.0)
             logger.warning(f"flood control, waiting {wait_time:.1f}s")
@@ -52,7 +54,7 @@ async def send_one(bot, chat_id: int, media_list: List[Dict], text: Optional[str
         input_media = build_input_media(media_list)
         if not input_media:
             return None
-        result = await safe_api_call(bot.send_media_group(chat_id, input_media))
+        result = await safe_api_call(lambda: bot.send_media_group(chat_id, input_media))
         return result[0] if result else None
 
     if media_list and len(media_list) == 1:
@@ -61,23 +63,23 @@ async def send_one(bot, chat_id: int, media_list: List[Dict], text: Optional[str
         opts = {"caption": text, "caption_entities": item.get("caption_entities") or text_entities}
 
         if kind == "photo":
-            return await safe_api_call(bot.send_photo(chat_id, file_id, **opts))
+            return await safe_api_call(lambda: bot.send_photo(chat_id, file_id, **opts))
         if kind == "video":
-            return await safe_api_call(bot.send_video(chat_id, file_id, **opts))
+            return await safe_api_call(lambda: bot.send_video(chat_id, file_id, **opts))
         if kind == "document":
-            return await safe_api_call(bot.send_document(chat_id, file_id, **opts))
+            return await safe_api_call(lambda: bot.send_document(chat_id, file_id, **opts))
         if kind == "audio":
-            return await safe_api_call(bot.send_audio(chat_id, file_id, **opts))
+            return await safe_api_call(lambda: bot.send_audio(chat_id, file_id, **opts))
         if kind == "voice":
-            return await safe_api_call(bot.send_voice(chat_id, file_id, **opts))
+            return await safe_api_call(lambda: bot.send_voice(chat_id, file_id, **opts))
         if kind == "video_note":
-            return await safe_api_call(bot.send_video_note(chat_id, file_id))
+            return await safe_api_call(lambda: bot.send_video_note(chat_id, file_id))
         if kind == "sticker":
-            return await safe_api_call(bot.send_sticker(chat_id, file_id))
+            return await safe_api_call(lambda: bot.send_sticker(chat_id, file_id))
         return None
 
     if text:
-        return await safe_api_call(bot.send_message(chat_id, text, entities=text_entities))
+        return await safe_api_call(lambda: bot.send_message(chat_id, text, entities=text_entities))
 
     return None
 
@@ -107,7 +109,7 @@ async def multipost(
 
             if pin and sent:
                 try:
-                    await safe_api_call(bot.pin_chat_message(
+                    await safe_api_call(lambda: bot.pin_chat_message(
                         chat_id=group["id"], message_id=sent.message_id, disable_notification=True
                     ))
                 except Exception as e:

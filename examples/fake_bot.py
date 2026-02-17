@@ -1,13 +1,15 @@
 from types import SimpleNamespace
 
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 
+FLOOD_CHAT_ID = 2001   # answers 429 once, then works
 DEAD_CHAT_ID = 3001    # bot was removed from this one
 
 
 class FakeBot:
     def __init__(self):
         self.calls = []
+        self._flood_hits = 0
         self._next_message_id = 1
 
     def _message(self, chat_id):
@@ -20,6 +22,10 @@ class FakeBot:
 
         if chat_id == DEAD_CHAT_ID:
             raise TelegramForbiddenError(method=None, message="bot was kicked from the chat")
+
+        if chat_id == FLOOD_CHAT_ID and self._flood_hits == 0:
+            self._flood_hits += 1
+            raise TelegramRetryAfter(method=None, message="Too Many Requests", retry_after=1)
 
         return self._message(chat_id)
 
