@@ -4,7 +4,7 @@ from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from access import is_owner
-from compose import drafts
+from compose import awaiting_time, drafts
 from sender import multipost
 from storage import data, drop_groups
 
@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-def pin_keyboard(key):
+def pin_keyboard(key, prefix):
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Yes, pin it", callback_data=f"pin_yes_{key}"),
-        InlineKeyboardButton(text="No, just send", callback_data=f"pin_no_{key}"),
+        InlineKeyboardButton(text="Yes, pin it", callback_data=f"{prefix}_yes_{key}"),
+        InlineKeyboardButton(text="No, just send", callback_data=f"{prefix}_no_{key}"),
     ]])
 
 
@@ -38,7 +38,31 @@ async def on_send(callback: CallbackQuery):
     await callback.message.edit_text(
         "Pin the message in the groups too?\n\n"
         "Make sure the bot is an admin with pin rights there.",
-        reply_markup=pin_keyboard(callback.data.split("_", 1)[1])
+        reply_markup=pin_keyboard(callback.data.split("_", 1)[1], "pin")
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("schedule_"))
+async def on_schedule(callback: CallbackQuery):
+    if not await has_draft(callback):
+        return
+
+    await callback.message.edit_text(
+        "Pin it once it goes out?",
+        reply_markup=pin_keyboard(callback.data.split("_", 1)[1], "schedpin")
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("schedpin_"))
+async def on_schedpin(callback: CallbackQuery):
+    if not await has_draft(callback):
+        return
+
+    awaiting_time[callback.from_user.id] = callback.data.startswith("schedpin_yes_")
+    await callback.message.edit_text(
+        "When should this go out?\nReply with 'in 30m', 'in 2h', or 'YYYY-MM-DD HH:MM'."
     )
     await callback.answer()
 
@@ -61,6 +85,7 @@ async def on_cancel(callback: CallbackQuery):
         return
 
     drafts.pop(user_id, None)
+    awaiting_time.pop(user_id, None)
     await callback.message.edit_text("Cancelled.")
     await callback.answer("Cancelled")
 
