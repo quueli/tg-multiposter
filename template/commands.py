@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -29,6 +30,7 @@ async def cmd_start(message: Message):
         f"Send me a message (text, photo, video, documents, etc.) and I'll fan it out.\n\n"
         f"Commands:\n"
         f"/groups - list groups\n"
+        f"/scheduled - list scheduled posts\n"
         f"/register - run this inside a group to register it"
     )
 
@@ -69,6 +71,28 @@ async def cmd_groups(message: Message):
         f"<b>Groups ({len(data['groups'])}):</b>\n\n" + "\n".join(lines),
         parse_mode="HTML"
     )
+
+
+@router.message(Command("scheduled"))
+async def cmd_scheduled(message: Message):
+    if message.chat.type != ChatType.PRIVATE:
+        return
+
+    if not is_owner(message.from_user.id):
+        await message.answer(denied(), parse_mode="HTML")
+        return
+
+    queue = data.get("scheduled", [])
+    if not queue:
+        await message.answer("Nothing scheduled.")
+        return
+
+    lines = ["<b>Scheduled posts:</b>\n"]
+    for post in queue:
+        when = datetime.fromisoformat(post["send_at"]).strftime("%Y-%m-%d %H:%M")
+        lines.append(f"- {when} ({'pin' if post.get('pin') else 'no pin'})")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.my_chat_member()
