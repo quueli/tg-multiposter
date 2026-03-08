@@ -1,17 +1,22 @@
 import asyncio
+import re
+from datetime import datetime, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from access import denied, is_owner
+from scheduler import schedule_post
 from sender import send_one
-from storage import data
+from storage import data, save_data
 
 ALBUM_WAIT = 1.0
 
+# in memory only, a restart drops whatever was waiting for a button press
 albums = {}
 drafts = {}
+awaiting_time = {}
 
 router = Router()
 router.message.filter(F.chat.type == ChatType.PRIVATE)
@@ -21,9 +26,23 @@ def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Send now", callback_data=f"send_{key}"),
-            InlineKeyboardButton(text="Cancel", callback_data=f"cancel_{key}"),
-        ]
+            InlineKeyboardButton(text="Schedule", callback_data=f"schedule_{key}"),
+        ],
+        [InlineKeyboardButton(text="Cancel", callback_data=f"cancel_{key}")],
     ])
+
+
+def parse_when(text):
+    text = text.strip().lower()
+    m = re.match(r"^in (\d+)\s*(m|min|h|hour)s?$", text)
+    if m:
+        amount, unit = int(m.group(1)), m.group(2)
+        delta = timedelta(hours=amount) if unit in ("h", "hour") else timedelta(minutes=amount)
+        return datetime.now() + delta
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
 
 
 def media_item(message: Message, with_caption=True):
@@ -110,6 +129,10 @@ async def handle_private_message(message: Message, bot: Bot):
     if message.text and message.text.startswith("/"):
         return
 
+    if user_id in awaiting_time:
+        await take_schedule_time(message, user_id)
+        return
+
     if message.media_group_id:
         album_id = message.media_group_id
         if album_id not in albums:
@@ -131,3 +154,21 @@ async def handle_private_message(message: Message, bot: Bot):
     }
 
     await send_preview(bot, message.chat.id, user_id, [item] if item else [], text, False, entities)
+
+
+async def take_schedule_time(message: Message, user_id: int):
+    when = parse_when(message.text or "")
+    if not when:
+        await message.answer("Didn't get that. Reply with 'in 30m', 'in 2h', or 'YYYY-MM-DD HH:MM'.")
+        return
+
+    draft = drafts.pop(user_id, None)
+    pin = awaiting_time.pop(user_id)
+    if not draft:
+        await message.answer("This message is gone, send a new one.")
+        return
+
+    schedule_post(data, dict(draft, pin=pin), send_at=when, owner_chat_id=message.chat.id)
+    save_data()
+
+    await message.answer(f"Scheduled for {when.strftime('%Y-%m-%d %H:%M')}.")
