@@ -34,9 +34,17 @@ def due_posts(scheduled: List[Dict], now: datetime) -> List[Dict]:
 async def process_due(bot, data: Dict, save_fn: Callable[[], None], now: Optional[datetime] = None) -> List[Dict]:
     now = now or datetime.now()
     scheduled = data.setdefault("scheduled", [])
-    fired = []
+    due = due_posts(scheduled, now)
+    if not due:
+        return []
 
-    for post in due_posts(scheduled, now):
+    # drop them from the queue before sending, so a slow send can't make the next tick fire them again
+    due_ids = {p["id"] for p in due}
+    data["scheduled"] = [p for p in scheduled if p["id"] not in due_ids]
+    save_fn()
+
+    fired = []
+    for post in due:
         result = await multipost(
             bot,
             data.get("groups", []),
@@ -46,9 +54,11 @@ async def process_due(bot, data: Dict, save_fn: Callable[[], None], now: Optiona
             is_media_group=post.get("is_media_group", False),
             pin=post.get("pin", False),
         )
+        if result["removed_ids"]:
+            data["groups"] = [g for g in data.get("groups", []) if g["id"] not in result["removed_ids"]]
+            save_fn()
+
         fired.append({"post": post, "result": result})
-        data["scheduled"] = [p for p in data["scheduled"] if p["id"] != post["id"]]
-        save_fn()
 
         owner_chat_id = post.get("owner_chat_id")
         if owner_chat_id:
@@ -56,6 +66,7 @@ async def process_due(bot, data: Dict, save_fn: Callable[[], None], now: Optiona
                 await bot.send_message(
                     owner_chat_id,
                     f"Scheduled post sent: {result['success']}/{result['total']} groups"
+                    + (f", {result['errors']} errors" if result["errors"] else "")
                 )
             except Exception as e:
                 logger.warning(f"could not report scheduled send to {owner_chat_id}: {e}")
