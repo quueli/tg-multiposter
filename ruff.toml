@@ -1,0 +1,6 @@
+line-length = 120
+# an instance runs from template/, so its modules import each other by bare name
+src = [".", "template"]
+
+[lint]
+select = ["E", "F", "W", "I"]
